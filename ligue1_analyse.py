@@ -24,9 +24,9 @@ div[data-testid="stMetric"] {
     font-weight: bold;
 }
 .stExpander {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.12);
     border-radius: 12px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -34,7 +34,7 @@ div[data-testid="stMetric"] {
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 BASE = "https://www.fotmob.com/api/data"
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=600)
 def fetch(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -43,11 +43,11 @@ def fetch(url):
     except:
         return None
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=600)
 def get_league():
     return fetch(BASE + "/leagues?id=53")
 
-@st.cache_data(ttl=900)
+@st.cache_data(ttl=600)
 def get_team(tid):
     return fetch(BASE + "/teams?id=" + str(tid))
 
@@ -68,55 +68,59 @@ def form_points(form_list, n=5):
 
 league = get_league()
 if not league:
-    st.error("Erreur de chargement")
+    st.error("Erreur de chargement des donnees")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
 team_form_dict = league["table"][0].get("teamForm", {})
 
-# Recuperer les matchs
-matches = []
-if "matches" in league:
-    for m in league["matches"].get("allMatches", []):
-        if m.get("status", {}).get("started") is False or m.get("status", {}).get("finished") is False:
-            matches.append(m)
-        elif m.get("status", {}).get("utcTime"):
-            matches.append(m)
+# Recuperer les prochains matchs
+matches_list = []
+raw_matches = league.get("matches", {}).get("allMatches", [])
 
-# Filtrer matchs a venir ou recents
-upcoming = []
-for m in matches[:20]:
+for m in raw_matches:
+    status = m.get("status", {})
+    if status.get("finished") is True:
+        continue
     home = m.get("home", {})
     away = m.get("away", {})
-    if home.get("name") and away.get("name"):
-        upcoming.append({
-            "home": home.get("name"),
-            "away": away.get("name"),
-            "home_id": str(home.get("id")),
-            "away_id": str(away.get("id")),
-            "time": m.get("status", {}).get("utcTime", "")[:16].replace("T", " ")
-        })
+    if not home.get("name") or not away.get("name"):
+        continue
+    utc = status.get("utcTime", "")
+    time_str = utc[:16].replace("T", " ") if utc else ""
+    matches_list.append({
+        "home": home.get("name"),
+        "away": away.get("name"),
+        "home_id": str(home.get("id")),
+        "away_id": str(away.get("id")),
+        "time": time_str
+    })
+
+# Garder les 9 prochains matchs (une journee)
+matches_list = matches_list[:9]
 
 st.title("Ligue 1")
-st.caption("Matchs de la semaine")
+st.subheader("Matchs de la semaine")
 
-if not upcoming:
-    st.info("Aucun match disponible pour le moment")
+if not matches_list:
+    st.info("Aucun match a venir pour le moment")
 else:
-    for match in upcoming[:10]:
-        title = match["home"] + " vs " + match["away"]
-        with st.expander(title + "  •  " + match["time"]):
+    for match in matches_list:
+        label = match["home"] + "  vs  " + match["away"]
+        if match["time"]:
+            label += "   •   " + match["time"]
+
+        with st.expander(label):
             c1, c2 = st.columns(2)
             with c1:
-                st.image(logo(match["home_id"]), width=70)
+                st.image(logo(match["home_id"]), width=80)
                 st.write("**" + match["home"] + "**")
             with c2:
-                st.image(logo(match["away_id"]), width=70)
+                st.image(logo(match["away_id"]), width=80)
                 st.write("**" + match["away"] + "**")
 
-            # Forme
-            form_h = [m for m in team_form_dict.get(match["home_id"], []) if m.get("home", {}).get("isOurTeam")]
-            form_a = [m for m in team_form_dict.get(match["away_id"], []) if not m.get("home", {}).get("isOurTeam")]
+            form_h = [x for x in team_form_dict.get(match["home_id"], []) if x.get("home", {}).get("isOurTeam")]
+            form_a = [x for x in team_form_dict.get(match["away_id"], []) if not x.get("home", {}).get("isOurTeam")]
 
             c1, c2 = st.columns(2)
             with c1:
@@ -124,7 +128,6 @@ else:
             with c2:
                 st.metric("Forme exterieur", form_string(form_a), str(form_points(form_a)) + " pts")
 
-            # Absents
             home_data = get_team(match["home_id"])
             away_data = get_team(match["away_id"])
 
@@ -145,7 +148,6 @@ else:
             st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
             st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
 
-            # Cotes
             query = (match["home"] + " " + match["away"]).replace(" ", "%20")
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -155,10 +157,11 @@ else:
             with c3:
                 st.link_button("Unibet", "https://www.unibet.fr/search?q=" + query)
 
-st.sidebar.title("Ligue 1")
-if st.sidebar.button("Classements"):
-    st.subheader("Classement")
-    rows = []
-    for t in table_data.get("all", []):
-        rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+with st.sidebar:
+    st.title("Menu")
+    if st.button("Voir le classement"):
+        st.subheader("Classement")
+        rows = []
+        for t in table_data.get("all", []):
+            rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
