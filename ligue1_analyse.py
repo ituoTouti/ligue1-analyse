@@ -4,24 +4,36 @@ import pandas as pd
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-st.set_page_config(page_title="Ligue 1", layout="centered", page_icon="⚽")
+st.set_page_config(page_title="Ligue 1 Analyse", layout="centered", page_icon="⚽")
 
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #0d4d2e 0%, #1a7a45 100%);
-    color: white;
+    background: linear-gradient(160deg, #0a3d26 0%, #146c3a 100%);
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-h1, h2, h3, label, .stMarkdown {color: white !important;}
+h1 {
+    text-decoration: underline;
+    text-underline-offset: 6px;
+    font-weight: 700;
+}
+h2, h3 {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    font-weight: 600;
+}
 div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.15);
-    border-radius: 12px;
-    padding: 8px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 12px;
+    border: 1px solid rgba(255,255,255,0.18);
 }
 .stExpander {
-    background: rgba(255,255,255,0.12);
-    border-radius: 12px;
-    margin-bottom: 10px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 14px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -52,7 +64,7 @@ def logo(team_id):
 def form_vnd(form_list, n=5):
     if not form_list:
         return "-"
-    mapping = {"W": "V", "D": "D", "L": "D"}
+    mapping = {"W": "V", "D": "N", "L": "D"}
     return " ".join(mapping.get(m.get("resultString", "?"), "?") for m in form_list[-n:])
 
 def form_points(form_list, n=5):
@@ -62,25 +74,24 @@ def form_points(form_list, n=5):
         pts += 3 if r == "W" else 1 if r == "D" else 0
     return pts
 
-def analyse_equipe(team, pos, form_pts, is_home):
+def analyse_equipe(pos, form_pts, is_home):
     fort = []
     faible = []
     if pos <= 6:
-        fort.append("bon classement")
+        fort.append("classement solide")
     else:
-        faible.append("classement moyen ou bas")
+        faible.append("classement fragile")
     if form_pts >= 10:
-        fort.append("excellente forme recente")
+        fort.append("excellente dynamique")
     elif form_pts <= 4:
-        faible.append("forme mediocre")
+        faible.append("dynamique negative")
     if is_home:
-        fort.append("avantage du terrain")
+        fort.append("avantage domicile")
     else:
         faible.append("deplacement")
     return (", ".join(fort) if fort else "aucun"), (", ".join(faible) if faible else "aucun")
 
-def pronostic_score(home, away, home_pos, away_pos, pts_h, pts_a):
-    # Score exact simple base sur forme et classement
+def pronostic_score(home_pos, away_pos, pts_h, pts_a):
     if pts_h >= 10 and home_pos < away_pos:
         return "2-0"
     elif pts_h >= 7 and home_pos <= away_pos:
@@ -96,7 +107,7 @@ def pronostic_score(home, away, home_pos, away_pos, pts_h, pts_a):
 
 league = get_league()
 if not league:
-    st.error("Erreur de chargement")
+    st.error("Erreur de chargement des donnees")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
@@ -108,9 +119,6 @@ for t in table_data.get("all", []):
     pos_map[t.get("name")] = t.get("idx")
 
 by_round = defaultdict(list)
-now = datetime.utcnow()
-cutoff_past = now - timedelta(days=10)
-cutoff_future = now + timedelta(days=21)
 
 for m in fixtures:
     status = m.get("status", {})
@@ -121,16 +129,20 @@ for m in fixtures:
         match_time = datetime.fromisoformat(utc_str.replace("Z", "+00:00")).replace(tzinfo=None)
     except:
         continue
-    if not (cutoff_past <= match_time <= cutoff_future):
-        continue
     home = m.get("home", {})
     away = m.get("away", {})
     if not home.get("name"):
         continue
-    round_num = m.get("round", "?")
+    round_num = str(m.get("round", "?"))
+    if not round_num.isdigit():
+        continue
+    rnd = int(round_num)
+    # Inclure journees 1 a 12 + futures proches
+    if rnd > 12 and match_time > datetime.utcnow() + timedelta(days=21):
+        continue
     score = status.get("scoreStr", "")
     finished = status.get("finished", False)
-    by_round[round_num].append({
+    by_round[rnd].append({
         "home": home.get("name"),
         "away": away.get("name"),
         "home_id": str(home.get("id")),
@@ -141,19 +153,20 @@ for m in fixtures:
         "sort": match_time
     })
 
-st.title("Ligue 1")
+st.title("Ligue 1 Analyse")
 st.subheader("Matchs par journee")
 
-sorted_rounds = sorted(by_round.keys(), key=lambda x: int(x) if str(x).isdigit() else 999)
+sorted_rounds = sorted(by_round.keys())
 
 for rnd in sorted_rounds:
     matches = sorted(by_round[rnd], key=lambda x: x["sort"])
     with st.expander(f"Journee {rnd}"):
         for match in matches:
             if match["finished"] and match["score"]:
-                label = match["home"] + " " + match["score"].replace(" - ", " ") + " " + match["away"] + "  •  " + match["time"]
+                label = match["home"] + " " + match["score"].replace(" - ", " – ") + " " + match["away"]
             else:
-                label = match["home"] + " vs " + match["away"] + "  •  " + match["time"]
+                label = match["home"] + " vs " + match["away"]
+            label += "  •  " + match["time"]
 
             with st.expander(label):
                 c1, c2 = st.columns(2)
@@ -169,26 +182,28 @@ for rnd in sorted_rounds:
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric("5 derniers (dom.)", form_vnd(form_h))
+                    st.metric("5 derniers resultats", form_vnd(form_h))
                 with c2:
-                    st.metric("5 derniers (ext.)", form_vnd(form_a))
-
-                home_pos = pos_map.get(match["home"], 10)
-                away_pos = pos_map.get(match["away"], 10)
-                pts_h = form_points(form_h)
-                pts_a = form_points(form_a)
+                    st.metric("5 derniers resultats", form_vnd(form_a))
 
                 if not match["finished"]:
-                    score_pred = pronostic_score(match["home"], match["away"], home_pos, away_pos, pts_h, pts_a)
+                    home_pos = pos_map.get(match["home"], 10)
+                    away_pos = pos_map.get(match["away"], 10)
+                    pts_h = form_points(form_h)
+                    pts_a = form_points(form_a)
+
+                    score_pred = pronostic_score(home_pos, away_pos, pts_h, pts_a)
                     st.markdown("**Pronostic score exact**")
                     st.write(score_pred)
 
-                    fort_h, faible_h = analyse_equipe(match["home"], home_pos, pts_h, True)
-                    fort_a, faible_a = analyse_equipe(match["away"], away_pos, pts_a, False)
+                    fort_h, faible_h = analyse_equipe(home_pos, pts_h, True)
+                    fort_a, faible_a = analyse_equipe(away_pos, pts_a, False)
 
-                    st.markdown("**Points forts / faibles**")
-                    st.write(match["home"] + " → Fort : " + fort_h + " | Faible : " + faible_h)
-                    st.write(match["away"] + " → Fort : " + fort_a + " | Faible : " + faible_a)
+                    st.markdown("**Analyse**")
+                    st.write(match["home"] + " — Point fort : " + fort_h)
+                    st.write(match["home"] + " — Point faible : " + faible_h)
+                    st.write(match["away"] + " — Point fort : " + fort_a)
+                    st.write(match["away"] + " — Point faible : " + faible_a)
 
                 home_data = get_team(match["home_id"])
                 away_data = get_team(match["away_id"])
@@ -205,13 +220,13 @@ for rnd in sorted_rounds:
 
                 inj_h = get_injured(home_data)
                 inj_a = get_injured(away_data)
-                st.write("**Absents**")
+                st.markdown("**Absents**")
                 st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
                 st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
 
 with st.sidebar:
     st.title("Menu")
-    if st.button("Classement"):
+    if st.button("Classement general"):
         rows = []
         for t in table_data.get("all", []):
             rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
