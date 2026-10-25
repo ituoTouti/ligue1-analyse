@@ -11,29 +11,14 @@ st.markdown("""
 .stApp {
     background: linear-gradient(160deg, #0a3d26 0%, #146c3a 100%);
     color: #ffffff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-h1 {
-    text-decoration: underline;
-    text-underline-offset: 6px;
-    font-weight: 700;
-}
-h2, h3 {
+h1, h2, h3 {
     text-decoration: underline;
     text-underline-offset: 4px;
-    font-weight: 600;
-}
-div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.12);
-    border-radius: 14px;
-    padding: 12px;
-    border: 1px solid rgba(255,255,255,0.18);
 }
 .stExpander {
-    background: rgba(255,255,255,0.08);
     border-radius: 14px;
     margin-bottom: 12px;
-    border: 1px solid rgba(255,255,255,0.15);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -107,7 +92,7 @@ def pronostic_score(home_pos, away_pos, pts_h, pts_a):
 
 league = get_league()
 if not league:
-    st.error("Erreur de chargement des donnees")
+    st.error("Erreur de chargement")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
@@ -119,6 +104,7 @@ for t in table_data.get("all", []):
     pos_map[t.get("name")] = t.get("idx")
 
 by_round = defaultdict(list)
+now = datetime.utcnow()
 
 for m in fixtures:
     status = m.get("status", {})
@@ -137,8 +123,7 @@ for m in fixtures:
     if not round_num.isdigit():
         continue
     rnd = int(round_num)
-    # Inclure journees 1 a 12 + futures proches
-    if rnd > 12 and match_time > datetime.utcnow() + timedelta(days=21):
+    if rnd > 15:
         continue
     score = status.get("scoreStr", "")
     finished = status.get("finished", False)
@@ -150,7 +135,9 @@ for m in fixtures:
         "time": match_time.strftime("%d/%m %H:%M"),
         "score": score if finished else "",
         "finished": finished,
-        "sort": match_time
+        "sort": match_time,
+        "is_past": match_time < now - timedelta(hours=3),
+        "is_current": abs((match_time - now).days) <= 2
     })
 
 st.title("Ligue 1 Analyse")
@@ -160,7 +147,24 @@ sorted_rounds = sorted(by_round.keys())
 
 for rnd in sorted_rounds:
     matches = sorted(by_round[rnd], key=lambda x: x["sort"])
-    with st.expander(f"Journee {rnd}"):
+    all_finished = all(m["finished"] for m in matches)
+    any_current = any(m["is_current"] and not m["finished"] for m in matches)
+
+    # Couleur selon statut
+    if all_finished:
+        color = "#6b7280"  # gris
+    elif any_current:
+        color = "#16a34a"  # vert
+    else:
+        color = "#1e3a8a"  # bleu fonce
+
+    st.markdown(f"""
+    <div style="background-color:{color}; padding:10px; border-radius:12px; margin-bottom:8px;">
+        <strong>Journee {rnd}</strong>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("Voir les matchs"):
         for match in matches:
             if match["finished"] and match["score"]:
                 label = match["home"] + " " + match["score"].replace(" - ", " – ") + " " + match["away"]
@@ -169,22 +173,18 @@ for rnd in sorted_rounds:
             label += "  •  " + match["time"]
 
             with st.expander(label):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.image(logo(match["home_id"]), width=70)
-                    st.write("**" + match["home"] + "**")
-                with c2:
-                    st.image(logo(match["away_id"]), width=70)
-                    st.write("**" + match["away"] + "**")
-
                 form_h = [x for x in team_form_dict.get(match["home_id"], []) if x.get("home", {}).get("isOurTeam")]
                 form_a = [x for x in team_form_dict.get(match["away_id"], []) if not x.get("home", {}).get("isOurTeam")]
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric("5 derniers resultats", form_vnd(form_h))
+                    st.image(logo(match["home_id"]), width=70)
+                    st.write("**" + match["home"] + "**")
+                    st.caption(form_vnd(form_h))
                 with c2:
-                    st.metric("5 derniers resultats", form_vnd(form_a))
+                    st.image(logo(match["away_id"]), width=70)
+                    st.write("**" + match["away"] + "**")
+                    st.caption(form_vnd(form_a))
 
                 if not match["finished"]:
                     home_pos = pos_map.get(match["home"], 10)
@@ -200,10 +200,10 @@ for rnd in sorted_rounds:
                     fort_a, faible_a = analyse_equipe(away_pos, pts_a, False)
 
                     st.markdown("**Analyse**")
-                    st.write(match["home"] + " — Point fort : " + fort_h)
-                    st.write(match["home"] + " — Point faible : " + faible_h)
-                    st.write(match["away"] + " — Point fort : " + fort_a)
-                    st.write(match["away"] + " — Point faible : " + faible_a)
+                    st.write(match["home"] + " — Fort : " + fort_h)
+                    st.write(match["home"] + " — Faible : " + faible_h)
+                    st.write(match["away"] + " — Fort : " + fort_a)
+                    st.write(match["away"] + " — Faible : " + faible_a)
 
                 home_data = get_team(match["home_id"])
                 away_data = get_team(match["away_id"])
@@ -226,7 +226,7 @@ for rnd in sorted_rounds:
 
 with st.sidebar:
     st.title("Menu")
-    if st.button("Classement general"):
+    if st.button("Classement"):
         rows = []
         for t in table_data.get("all", []):
             rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
