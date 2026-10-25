@@ -61,23 +61,6 @@ def form_points(form_list, n=5):
         pts += 3 if r == "W" else 1 if r == "D" else 0
     return pts
 
-def analyse_equipe(pos, form_pts, is_home):
-    fort = []
-    faible = []
-    if pos <= 6:
-        fort.append("classement solide")
-    else:
-        faible.append("classement fragile")
-    if form_pts >= 10:
-        fort.append("excellente dynamique")
-    elif form_pts <= 4:
-        faible.append("dynamique negative")
-    if is_home:
-        fort.append("avantage domicile")
-    else:
-        faible.append("deplacement")
-    return (", ".join(fort) if fort else "aucun"), (", ".join(faible) if faible else "aucun")
-
 def pronostic_score(home_pos, away_pos, pts_h, pts_a):
     if pts_h >= 10 and home_pos < away_pos:
         return "2-0"
@@ -92,13 +75,19 @@ def pronostic_score(home_pos, away_pos, pts_h, pts_a):
     else:
         return "1-0" if home_pos < away_pos else "0-1"
 
-def description_avenir(home, away, home_pos, away_pos):
+def description_complete(home, away, home_pos, away_pos, inj_h, inj_a):
+    text = f"{home} recoit {away}. "
     if home_pos < away_pos:
-        return f"{home} recoit {away}. L'equipe domicile est mieux classee et part favorite sur son terrain."
+        text += f"{home} est mieux classe ({home_pos}e contre {away_pos}e) et part favori a domicile. "
     elif away_pos < home_pos:
-        return f"{away} se deplace chez {home}. Les visiteurs ont un meilleur classement et peuvent surprendre."
+        text += f"{away} est mieux classe et peut creer la surprise en deplacement. "
     else:
-        return f"Confrontation equilibree entre {home} et {away}. Match ouvert ou les details feront la difference."
+        text += "Les deux equipes sont proches au classement. "
+    if inj_h:
+        text += f"Absents cote {home} : {', '.join(inj_h[:3])}. "
+    if inj_a:
+        text += f"Absents cote {away} : {', '.join(inj_a[:3])}."
+    return text
 
 league = get_league()
 if not league:
@@ -146,7 +135,6 @@ for m in fixtures:
         "score": score if finished else "",
         "finished": finished,
         "sort": match_time,
-        "is_past": match_time < now - timedelta(hours=3),
         "is_current": abs((match_time - now).days) <= 2
     })
 
@@ -182,7 +170,6 @@ for rnd in sorted_rounds:
             label += "  •  " + match["time"]
 
             with st.expander(label):
-                # Forme generale (5 derniers)
                 form_h_all = team_form_dict.get(match["home_id"], [])
                 form_a_all = team_form_dict.get(match["away_id"], [])
 
@@ -196,31 +183,7 @@ for rnd in sorted_rounds:
                     st.write("**" + match["away"] + "**")
                     st.caption("5 derniers : " + form_vnd(form_a_all, 5))
 
-                if match["finished"]:
-                    st.markdown("**Resume du match**")
-                    st.write(match["home"] + " " + match["score"].replace(" - ", " – ") + " " + match["away"] + ". Match termine.")
-                    st.caption("Buteurs : informations detaillees non disponibles dans les donnees gratuites.")
-                else:
-                    home_pos = pos_map.get(match["home"], 10)
-                    away_pos = pos_map.get(match["away"], 10)
-                    pts_h = form_points(form_h_all)
-                    pts_a = form_points(form_a_all)
-
-                    st.markdown("**Description**")
-                    st.write(description_avenir(match["home"], match["away"], home_pos, away_pos))
-
-                    score_pred = pronostic_score(home_pos, away_pos, pts_h, pts_a)
-                    st.markdown("**Pronostic score exact**")
-                    st.write(score_pred)
-
-                    fort_h, faible_h = analyse_equipe(home_pos, pts_h, True)
-                    fort_a, faible_a = analyse_equipe(away_pos, pts_a, False)
-
-                    st.markdown("**Analyse**")
-                    st.write(match["home"] + " — Fort : " + fort_h)
-                    st.write(match["home"] + " — Faible : " + faible_h)
-                    st.write(match["away"] + " — Fort : " + fort_a)
-                    st.write(match["away"] + " — Faible : " + faible_a)
+                tab1, tab2, tab3, tab4 = st.tabs(["Resume", "Compos", "Tete a tete", "Classement"])
 
                 home_data = get_team(match["home_id"])
                 away_data = get_team(match["away_id"])
@@ -237,13 +200,41 @@ for rnd in sorted_rounds:
 
                 inj_h = get_injured(home_data)
                 inj_a = get_injured(away_data)
-                st.markdown("**Absents**")
-                st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
-                st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
+
+                with tab1:
+                    if match["finished"]:
+                        st.write("**Resultat**")
+                        st.write(match["home"] + " " + match["score"].replace(" - ", " – ") + " " + match["away"])
+                        st.caption("Match termine.")
+                    else:
+                        home_pos = pos_map.get(match["home"], 10)
+                        away_pos = pos_map.get(match["away"], 10)
+                        pts_h = form_points(form_h_all)
+                        pts_a = form_points(form_a_all)
+                        st.write("**Description**")
+                        st.write(description_complete(match["home"], match["away"], home_pos, away_pos, inj_h, inj_a))
+                        st.write("**Pronostic score exact**")
+                        st.write(pronostic_score(home_pos, away_pos, pts_h, pts_a))
+
+                with tab2:
+                    st.write("**Absents / Blesses**")
+                    st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
+                    st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
+
+                with tab3:
+                    st.write("**Forme recente**")
+                    st.write(match["home"] + " : " + form_vnd(form_h_all, 5))
+                    st.write(match["away"] + " : " + form_vnd(form_a_all, 5))
+
+                with tab4:
+                    home_pos = pos_map.get(match["home"], "?")
+                    away_pos = pos_map.get(match["away"], "?")
+                    st.write(match["home"] + " : " + str(home_pos) + "e")
+                    st.write(match["away"] + " : " + str(away_pos) + "e")
 
 with st.sidebar:
     st.title("Menu")
-    if st.button("Classement"):
+    if st.button("Classement general"):
         rows = []
         for t in table_data.get("all", []):
             rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
