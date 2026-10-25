@@ -2,15 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 
-st.set_page_config(page_title="Ligue 1 Analyse", layout="wide", page_icon="⚽")
-
-st.markdown("""
-<style>
-.stApp {background-color: #0f0f0f; color: white;}
-div[data-testid="stMetric"] {background: #1e1e1e; border-radius: 12px; padding: 8px;}
-.stButton>button, .stLinkButton>a {background-color: #00c853; color: black; border-radius: 10px; font-weight: bold;}
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Ligue 1", layout="wide")
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 BASE = "https://www.fotmob.com/api/data"
@@ -24,63 +16,34 @@ def fetch(url):
     except:
         return None
 
-@st.cache_data(ttl=1800)
-def get_league():
-    return fetch(BASE + "/leagues?id=53")
-
-@st.cache_data(ttl=900)
-def get_team(tid):
-    return fetch(BASE + "/teams?id=" + str(tid))
-
-def logo(team_id):
-    return "https://images.fotmob.com/image_resources/logo/teamlogo/" + str(team_id) + ".png"
-
-def form_string(form_list, n=5):
-    if not form_list:
-        return "-"
-    return "".join(m.get("resultString", "?") for m in form_list[-n:])
-
-def form_points(form_list, n=5):
-    pts = 0
-    for m in form_list[-n:]:
-        r = m.get("resultString")
-        pts += 3 if r == "W" else 1 if r == "D" else 0
-    return pts
-
-league = get_league()
+league = fetch(BASE + "/leagues?id=53")
 if not league:
-    st.error("Impossible de charger les données")
+    st.error("Erreur chargement")
     st.stop()
 
-table_data = league["table"][0]["data"]["table"]
-team_form_dict = league["table"][0].get("teamForm", {})
+table = league["table"][0]["data"]["table"]["all"]
+teams = [t["name"] for t in table]
+ids = {t["name"]: str(t["id"]) for t in table}
 
-def build_df(key):
-    rows = []
-    for t in table_data.get(key, []):
-        rows.append({
-            "Pos": t.get("idx"),
-            "Equipe": t.get("name"),
-            "Pts": t.get("pts"),
-            "id": str(t.get("id"))
-        })
-    return pd.DataFrame(rows).sort_values("Pos") if rows else pd.DataFrame()
+st.title("Analyse Ligue 1")
 
-df_all = build_df("all")
-teams = df_all["Equipe"].tolist()
-id_map = dict(zip(df_all["Equipe"], df_all["id"]))
+home = st.selectbox("Domicile", teams)
+away = st.selectbox("Exterieur", teams, index=1)
 
-menu = st.sidebar.radio("Menu", ["Analyse", "Classements"])
+if home == away:
+    st.warning("Deux equipes differentes")
+    st.stop()
 
-if menu == "Analyse":
-    st.title("Analyse de match")
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader(home)
+    st.image("https://images.fotmob.com/image_resources/logo/teamlogo/" + ids[home] + ".png", width=80)
+with col2:
+    st.subheader(away)
+    st.image("https://images.fotmob.com/image_resources/logo/teamlogo/" + ids[away] + ".png", width=80)
 
-    home_team = st.selectbox("Domicile", teams)
-    away_team = st.selectbox("Exterieur", teams, index=1)
-
-    if home_team == away_team:
-        st.warning("Choisis deux equipes differentes")
-        st.stop()
-
-    home_id = id_map[home_team]
-    away_id = id_map[away_
+st.subheader("Cotes")
+q = (home + " " + away).replace(" ", "%20")
+st.link_button("Betclic", "https://www.betclic.fr/search?q=" + q)
+st.link_button("Winamax", "https://www.winamax.fr/search?q=" + q)
+st.link_button("Unibet", "https://www.unibet.fr/search?q=" + q)
