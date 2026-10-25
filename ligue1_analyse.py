@@ -14,40 +14,42 @@ st.set_page_config(
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(165deg, #071f14 0%, #0f3d28 40%, #0a2e1c 100%);
-    color: #f3f4f6;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(165deg, #071f14 0%, #0f3d28 50%, #0a2e1c 100%);
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 h1 {
     font-weight: 700;
-    letter-spacing: -0.5px;
-    border-bottom: 2px solid #22c55e;
-    padding-bottom: 8px;
-    margin-bottom: 4px;
+    border-bottom: 3px solid #22c55e;
+    padding-bottom: 10px;
 }
-h2, h3 {
+h2 {
+    color: #bbf7d0;
     font-weight: 600;
-    color: #d1fae5;
 }
 .stExpander {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.14);
     border-radius: 16px;
-    margin-bottom: 14px;
-}
-div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.08);
-    border-radius: 12px;
-    padding: 10px;
+    margin-bottom: 16px;
 }
 .stTabs [data-baseweb="tab"] {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.1);
     border-radius: 10px;
-    margin-right: 6px;
+    margin-right: 8px;
+    padding: 8px 16px;
 }
 .stTabs [aria-selected="true"] {
     background: #16a34a !important;
     color: white !important;
+    font-weight: 600;
+}
+.stButton>button {
+    background: #16a34a;
+    color: white;
+    border-radius: 10px;
+    border: none;
+    font-weight: 600;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -90,52 +92,62 @@ def form_points(form_list, n=5):
         pts += 3 if r == "W" else 1 if r == "D" else 0
     return pts
 
-def pronostic_score(home_pos, away_pos, pts_h, pts_a):
+def pronostic_complet(home, away, home_pos, away_pos, pts_h, pts_a):
     if pts_h >= 10 and home_pos < away_pos:
-        return "2-0"
+        score = "2-0"
+        buteurs = f"Buts de {home}"
     elif pts_h >= 7 and home_pos <= away_pos:
-        return "2-1"
+        score = "2-1"
+        buteurs = f"Buts de {home} et un but de {away}"
     elif pts_a >= 10 and away_pos < home_pos:
-        return "0-2"
+        score = "0-2"
+        buteurs = f"Buts de {away}"
     elif pts_a >= 7 and away_pos <= home_pos:
-        return "1-2"
+        score = "1-2"
+        buteurs = f"But de {home} et buts de {away}"
     elif abs(home_pos - away_pos) <= 2:
-        return "1-1"
+        score = "1-1"
+        buteurs = f"Un but de chaque côté"
     else:
-        return "1-0" if home_pos < away_pos else "0-1"
+        score = "1-0" if home_pos < away_pos else "0-1"
+        buteurs = f"But de {home if home_pos < away_pos else away}"
+    return score, buteurs
 
-def analyse_expert(home, away, home_pos, away_pos, pts_h, pts_a, form_h, form_a, inj_h, inj_a, finished, score):
+def analyse_longue(home, away, home_pos, away_pos, pts_h, pts_a, form_h, form_a, inj_h, inj_a, finished, score):
     if finished:
         return (
             f"**Résultat final** : {home} {score.replace(' - ', ' – ')} {away}.\n\n"
-            f"Avant ce match, {home} occupait la {home_pos}e place avec une série de {form_h}. "
-            f"{away} était {away_pos}e (forme récente : {form_a}). "
-            + (f"Les absences notables étaient : {', '.join((inj_h + inj_a)[:4])}." if (inj_h or inj_a) else "Peu d’absences majeures signalées.")
+            f"Avant cette rencontre, {home} se situait à la {home_pos}e place du classement avec une forme récente de {form_h} "
+            f"({pts_h} points sur les 5 derniers matchs). {away} occupait la {away_pos}e place avec une série de {form_a} "
+            f"({pts_a} points).\n\n"
+            f"Le match s’est joué dans un contexte où les enjeux de classement restaient importants pour les deux formations. "
+            + (f"Les absences principales concernaient {', '.join((inj_h + inj_a)[:3])}." if (inj_h or inj_a) else "Peu d’absences majeures ont été signalées des deux côtés.")
+            + "\n\nCe résultat confirme la hiérarchie actuelle de la Ligue 1 sur cette période."
         )
     else:
         texte = (
-            f"**Contexte**\n"
-            f"{home} ({home_pos}e, forme {form_h} — {pts_h} pts sur 5 matchs) reçoit {away} "
-            f"({away_pos}e, forme {form_a} — {pts_a} pts).\n\n"
+            f"**Analyse de la rencontre**\n\n"
+            f"{home} ({home_pos}e, forme {form_h} — {pts_h} pts) reçoit {away} ({away_pos}e, forme {form_a} — {pts_a} pts) "
+            f"dans un match qui s’annonce intéressant au regard des positions au classement.\n\n"
         )
-        if home_pos <= 6 and pts_h >= 8:
-            texte += f"{home} présente un profil solide à domicile et part logiquement favori.\n\n"
-        elif away_pos <= 6 and pts_a >= 8:
-            texte += f"{away} arrive en confiance et dispose des arguments pour faire mal en déplacement.\n\n"
+        if home_pos < away_pos and pts_h >= pts_a:
+            texte += f"{home} dispose d’un avantage clair grâce à son meilleur classement et à l’avantage du terrain. L’équipe locale devrait contrôler la rencontre et se créer les meilleures occasions.\n\n"
+        elif away_pos < home_pos and pts_a > pts_h:
+            texte += f"{away} arrive en meilleure dynamique et avec un meilleur classement. Les visiteurs ont les moyens de prendre le dessus même en déplacement.\n\n"
         else:
-            texte += "Le rapport de force est relativement équilibré. Les détails feront la différence.\n\n"
+            texte += f"Les deux équipes présentent des profils proches. Le match devrait être serré et se jouer sur des détails, notamment l’efficacité devant le but et la solidité défensive.\n\n"
 
         if inj_h:
-            texte += f"**Absences {home}** : {', '.join(inj_h[:3])}.\n"
+            texte += f"**Absences {home}** : {', '.join(inj_h[:3])}. Ces manques pourraient influencer le collectif.\n"
         if inj_a:
             texte += f"**Absences {away}** : {', '.join(inj_a[:3])}.\n"
 
-        texte += "\n**Lecture** : l’efficacité offensive et la solidité défensive seront déterminantes."
+        texte += "\n**Lecture finale** : la première équipe qui ouvrira le score prendra un avantage psychologique important dans cette confrontation."
         return texte
 
 league = get_league()
 if not league:
-    st.error("Impossible de charger les données. Réessayez dans quelques instants.")
+    st.error("Impossible de charger les données.")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
@@ -181,7 +193,7 @@ for m in fixtures:
     })
 
 st.title("Ligue 1 Pro")
-st.caption("Analyses • Forme • Absences • Pronostics")
+st.caption("Analyses détaillées • Forme • Absences • Pronostics")
 
 sorted_rounds = sorted(by_round.keys())
 
@@ -198,12 +210,12 @@ for rnd in sorted_rounds:
         color = "#1e40af"
 
     st.markdown(f"""
-    <div style="background:{color}; padding:12px 16px; border-radius:12px; margin:8px 0; font-weight:600;">
+    <div style="background:{color}; padding:14px 18px; border-radius:12px; margin:10px 0; font-weight:600; font-size:1.05rem;">
         Journée {rnd}
     </div>
     """, unsafe_allow_html=True)
 
-    with st.expander("Afficher les matchs"):
+    with st.expander("Voir les matchs de la journée"):
         for match in matches:
             if match["finished"] and match["score"]:
                 label = f"{match['home']}  {match['score'].replace(' - ', ' – ')}  {match['away']}"
@@ -217,11 +229,11 @@ for rnd in sorted_rounds:
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.image(logo(match["home_id"]), width=72)
+                    st.image(logo(match["home_id"]), width=75)
                     st.markdown(f"**{match['home']}**")
                     st.caption(form_vnd(form_h, 5))
                 with c2:
-                    st.image(logo(match["away_id"]), width=72)
+                    st.image(logo(match["away_id"]), width=75)
                     st.markdown(f"**{match['away']}**")
                     st.caption(form_vnd(form_a, 5))
 
@@ -249,14 +261,16 @@ for rnd in sorted_rounds:
                 pts_a = form_points(form_a)
 
                 with tabs[0]:
-                    st.markdown(analyse_expert(
+                    st.markdown(analyse_longue(
                         match["home"], match["away"], home_pos, away_pos,
                         pts_h, pts_a, form_vnd(form_h, 5), form_vnd(form_a, 5),
                         inj_h, inj_a, match["finished"], match["score"]
                     ))
                     if not match["finished"]:
-                        st.markdown("**Score pronostiqué**")
-                        st.write(pronostic_score(home_pos, away_pos, pts_h, pts_a))
+                        score_pred, buteurs = pronostic_complet(match["home"], match["away"], home_pos, away_pos, pts_h, pts_a)
+                        st.markdown("**Pronostic**")
+                        st.write(f"Score exact : **{score_pred}**")
+                        st.write(f"Buteurs potentiels : {buteurs}")
 
                 with tabs[1]:
                     st.write(f"**{match['home']}** : {', '.join(inj_h) if inj_h else 'Aucun absent majeur'}")
@@ -267,11 +281,13 @@ for rnd in sorted_rounds:
                     st.write(f"**{match['away']}** : {form_vnd(form_a, 5)} ({pts_a} pts)")
 
                 with tabs[3]:
-                    st.write(f"**{match['home']}** : {home_pos}e")
-                    st.write(f"**{match['away']}** : {away_pos}e")
+                    st.markdown("**Classement actuel Ligue 1**")
+                    rows = []
+                    for t in table_data.get("all", []):
+                        rows.append({"Pos": t.get("idx"), "Équipe": t.get("name"), "Pts": t.get("pts")})
+                    df = pd.DataFrame(rows)
+                    st.dataframe(df, hide_index=True, use_container_width=True)
 
 with st.sidebar:
     st.markdown("### Ligue 1 Pro")
-    if st.button("Classement général"):
-        rows = [{"Pos": t.get("idx"), "Équipe": t.get("name"), "Pts": t.get("pts")} for t in table_data.get("all", [])]
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.caption("Analyses professionnelles")
