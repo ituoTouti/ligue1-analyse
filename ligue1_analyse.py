@@ -1,36 +1,32 @@
 import streamlit as st
 import requests
 import pandas as pd
+from datetime import datetime
 
-st.set_page_config(page_title="Ligue 1 Analyse", layout="wide", page_icon="⚽")
+st.set_page_config(page_title="Ligue 1", layout="centered", page_icon="⚽")
 
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #0d4d2e 0%, #1a7a45 50%, #0d4d2e 100%);
-    color: #ffffff;
+    background: linear-gradient(135deg, #0d4d2e 0%, #1a7a45 100%);
+    color: white;
 }
-h1, h2, h3, h4, .stMarkdown, label {
-    color: #ffffff !important;
-}
+h1, h2, h3, label, .stMarkdown {color: white !important;}
 div[data-testid="stMetric"] {
-    background-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255,255,255,0.15);
     border-radius: 12px;
-    padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px;
 }
 .stButton>button, .stLinkButton>a {
-    background-color: #ffffff !important;
+    background: white !important;
     color: #0d4d2e !important;
-    border-radius: 10px !important;
-    font-weight: bold !important;
-}
-.stSelectbox div[data-baseweb="select"] {
-    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    font-weight: bold;
 }
 .stExpander {
-    background-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255,255,255,0.1);
     border-radius: 12px;
+    margin-bottom: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -72,118 +68,97 @@ def form_points(form_list, n=5):
 
 league = get_league()
 if not league:
-    st.error("Impossible de charger les donnees")
+    st.error("Erreur de chargement")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
 team_form_dict = league["table"][0].get("teamForm", {})
 
-def build_df(key):
-    rows = []
-    for t in table_data.get(key, []):
-        rows.append({
-            "Pos": t.get("idx"),
-            "Equipe": t.get("name"),
-            "Pts": t.get("pts"),
-            "J": t.get("played"),
-            "V": t.get("wins"),
-            "N": t.get("draws"),
-            "D": t.get("losses"),
-            "id": str(t.get("id"))
+# Recuperer les matchs
+matches = []
+if "matches" in league:
+    for m in league["matches"].get("allMatches", []):
+        if m.get("status", {}).get("started") is False or m.get("status", {}).get("finished") is False:
+            matches.append(m)
+        elif m.get("status", {}).get("utcTime"):
+            matches.append(m)
+
+# Filtrer matchs a venir ou recents
+upcoming = []
+for m in matches[:20]:
+    home = m.get("home", {})
+    away = m.get("away", {})
+    if home.get("name") and away.get("name"):
+        upcoming.append({
+            "home": home.get("name"),
+            "away": away.get("name"),
+            "home_id": str(home.get("id")),
+            "away_id": str(away.get("id")),
+            "time": m.get("status", {}).get("utcTime", "")[:16].replace("T", " ")
         })
-    return pd.DataFrame(rows).sort_values("Pos") if rows else pd.DataFrame()
 
-df_all = build_df("all")
-teams = df_all["Equipe"].tolist()
-id_map = dict(zip(df_all["Equipe"], df_all["id"]))
-pos_map = dict(zip(df_all["Equipe"], df_all["Pos"]))
+st.title("Ligue 1")
+st.caption("Matchs de la semaine")
 
-menu = st.sidebar.radio("Menu", ["Analyse", "Classements"])
-
-if menu == "Analyse":
-    st.title("Analyse de match")
-
-    home_team = st.selectbox("Domicile", teams)
-    away_team = st.selectbox("Exterieur", teams, index=1)
-
-    if home_team == away_team:
-        st.warning("Choisis deux equipes differentes")
-        st.stop()
-
-    home_id = id_map[home_team]
-    away_id = id_map[away_team]
-
-    c1, c2, c3 = st.columns([1, 0.3, 1])
-    with c1:
-        st.image(logo(home_id), width=100)
-        st.markdown("**" + home_team + "**")
-        st.caption("Position : " + str(pos_map.get(home_team, "?")))
-    with c2:
-        st.markdown("<br><br><center><h2>VS</h2></center>", unsafe_allow_html=True)
-    with c3:
-        st.image(logo(away_id), width=100)
-        st.markdown("**" + away_team + "**")
-        st.caption("Position : " + str(pos_map.get(away_team, "?")))
-
-    home_data = get_team(home_id)
-    away_data = get_team(away_id)
-
-    st.subheader("Forme recente")
-    c1, c2 = st.columns(2)
-    with c1:
-        form_h = [m for m in team_form_dict.get(home_id, []) if m.get("home", {}).get("isOurTeam")]
-        st.metric("Domicile", form_string(form_h, 5), str(form_points(form_h, 5)) + " pts")
-    with c2:
-        form_a = [m for m in team_form_dict.get(away_id, []) if not m.get("home", {}).get("isOurTeam")]
-        st.metric("Exterieur", form_string(form_a, 5), str(form_points(form_a, 5)) + " pts")
-
-    st.subheader("Contexte")
-    home_pos = pos_map.get(home_team, 20)
-    away_pos = pos_map.get(away_team, 20)
-    if home_pos <= 4 and away_pos <= 4:
-        st.success("Match pour le haut de tableau")
-    elif home_pos >= 15 or away_pos >= 15:
-        st.warning("Enjeu de relégation possible")
-    else:
-        st.info("Match de milieu de tableau")
-
-    with st.expander("Absents / Blesses"):
-        def get_injured(tdata):
-            injured = []
-            if not tdata:
-                return injured
-            for group in tdata.get("squad", {}).get("squad", []):
-                for p in group.get("members", []):
-                    if p.get("injured") or p.get("injury"):
-                        role = p.get("role", {}).get("fallback", "")
-                        injured.append(p.get("name", "?") + " (" + role + ")")
-            return injured
-        inj_h = get_injured(home_data)
-        inj_a = get_injured(away_data)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("**" + home_team + "**")
-            st.write(", ".join(inj_h) if inj_h else "Aucun")
-        with c2:
-            st.write("**" + away_team + "**")
-            st.write(", ".join(inj_a) if inj_a else "Aucun")
-
-    st.subheader("Cotes")
-    query = (home_team + " " + away_team).replace(" ", "%20")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.link_button("Betclic", "https://www.betclic.fr/search?q=" + query)
-    with c2:
-        st.link_button("Winamax", "https://www.winamax.fr/search?q=" + query)
-    with c3:
-        st.link_button("Unibet", "https://www.unibet.fr/search?q=" + query)
-
+if not upcoming:
+    st.info("Aucun match disponible pour le moment")
 else:
-    st.title("Classements")
-    tab1, tab2, tab3 = st.tabs(["General", "Domicile", "Exterieur"])
-    with tab1:
-        st.dataframe(df_all[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
-    with tab2:
-        st.dataframe(build_df("home")[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
-    with tab3:
-        st.dataframe(build_df("away")[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
+    for match in upcoming[:10]:
+        title = match["home"] + " vs " + match["away"]
+        with st.expander(title + "  •  " + match["time"]):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.image(logo(match["home_id"]), width=70)
+                st.write("**" + match["home"] + "**")
+            with c2:
+                st.image(logo(match["away_id"]), width=70)
+                st.write("**" + match["away"] + "**")
+
+            # Forme
+            form_h = [m for m in team_form_dict.get(match["home_id"], []) if m.get("home", {}).get("isOurTeam")]
+            form_a = [m for m in team_form_dict.get(match["away_id"], []) if not m.get("home", {}).get("isOurTeam")]
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Forme domicile", form_string(form_h), str(form_points(form_h)) + " pts")
+            with c2:
+                st.metric("Forme exterieur", form_string(form_a), str(form_points(form_a)) + " pts")
+
+            # Absents
+            home_data = get_team(match["home_id"])
+            away_data = get_team(match["away_id"])
+
+            def get_injured(tdata):
+                injured = []
+                if not tdata:
+                    return injured
+                for group in tdata.get("squad", {}).get("squad", []):
+                    for p in group.get("members", []):
+                        if p.get("injured") or p.get("injury"):
+                            injured.append(p.get("name", "?"))
+                return injured
+
+            inj_h = get_injured(home_data)
+            inj_a = get_injured(away_data)
+
+            st.write("**Absents**")
+            st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
+            st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
+
+            # Cotes
+            query = (match["home"] + " " + match["away"]).replace(" ", "%20")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.link_button("Betclic", "https://www.betclic.fr/search?q=" + query)
+            with c2:
+                st.link_button("Winamax", "https://www.winamax.fr/search?q=" + query)
+            with c3:
+                st.link_button("Unibet", "https://www.unibet.fr/search?q=" + query)
+
+st.sidebar.title("Ligue 1")
+if st.sidebar.button("Classements"):
+    st.subheader("Classement")
+    rows = []
+    for t in table_data.get("all", []):
+        rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
