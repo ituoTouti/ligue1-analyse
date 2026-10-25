@@ -6,9 +6,32 @@ st.set_page_config(page_title="Ligue 1 Analyse", layout="wide", page_icon="⚽")
 
 st.markdown("""
 <style>
-.stApp {background-color: #111111; color: #ffffff;}
-.stMetric {background-color: #1e1e1e; border-radius: 10px; padding: 8px;}
-.stButton>button, .stLinkButton>a {background-color: #00c853; color: black; border-radius: 8px; font-weight: bold;}
+.stApp {
+    background: linear-gradient(135deg, #0d4d2e 0%, #1a7a45 50%, #0d4d2e 100%);
+    color: #ffffff;
+}
+h1, h2, h3, h4, .stMarkdown, label {
+    color: #ffffff !important;
+}
+div[data-testid="stMetric"] {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.stButton>button, .stLinkButton>a {
+    background-color: #ffffff !important;
+    color: #0d4d2e !important;
+    border-radius: 10px !important;
+    font-weight: bold !important;
+}
+.stSelectbox div[data-baseweb="select"] {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+.stExpander {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -62,6 +85,10 @@ def build_df(key):
             "Pos": t.get("idx"),
             "Equipe": t.get("name"),
             "Pts": t.get("pts"),
+            "J": t.get("played"),
+            "V": t.get("wins"),
+            "N": t.get("draws"),
+            "D": t.get("losses"),
             "id": str(t.get("id"))
         })
     return pd.DataFrame(rows).sort_values("Pos") if rows else pd.DataFrame()
@@ -69,6 +96,7 @@ def build_df(key):
 df_all = build_df("all")
 teams = df_all["Equipe"].tolist()
 id_map = dict(zip(df_all["Equipe"], df_all["id"]))
+pos_map = dict(zip(df_all["Equipe"], df_all["Pos"]))
 
 menu = st.sidebar.radio("Menu", ["Analyse", "Classements"])
 
@@ -87,28 +115,39 @@ if menu == "Analyse":
 
     c1, c2, c3 = st.columns([1, 0.3, 1])
     with c1:
-        st.image(logo(home_id), width=90)
-        st.write("**" + home_team + "**")
+        st.image(logo(home_id), width=100)
+        st.markdown("**" + home_team + "**")
+        st.caption("Position : " + str(pos_map.get(home_team, "?")))
     with c2:
-        st.write("")
-        st.write("**VS**")
+        st.markdown("<br><br><center><h2>VS</h2></center>", unsafe_allow_html=True)
     with c3:
-        st.image(logo(away_id), width=90)
-        st.write("**" + away_team + "**")
+        st.image(logo(away_id), width=100)
+        st.markdown("**" + away_team + "**")
+        st.caption("Position : " + str(pos_map.get(away_team, "?")))
 
     home_data = get_team(home_id)
     away_data = get_team(away_id)
 
-    st.subheader("Forme")
+    st.subheader("Forme recente")
     c1, c2 = st.columns(2)
     with c1:
         form_h = [m for m in team_form_dict.get(home_id, []) if m.get("home", {}).get("isOurTeam")]
-        st.metric("Domicile", form_string(form_h), str(form_points(form_h)) + " pts")
+        st.metric("Domicile", form_string(form_h, 5), str(form_points(form_h, 5)) + " pts")
     with c2:
         form_a = [m for m in team_form_dict.get(away_id, []) if not m.get("home", {}).get("isOurTeam")]
-        st.metric("Exterieur", form_string(form_a), str(form_points(form_a)) + " pts")
+        st.metric("Exterieur", form_string(form_a, 5), str(form_points(form_a, 5)) + " pts")
 
-    with st.expander("Blesses / Absents"):
+    st.subheader("Contexte")
+    home_pos = pos_map.get(home_team, 20)
+    away_pos = pos_map.get(away_team, 20)
+    if home_pos <= 4 and away_pos <= 4:
+        st.success("Match pour le haut de tableau")
+    elif home_pos >= 15 or away_pos >= 15:
+        st.warning("Enjeu de relégation possible")
+    else:
+        st.info("Match de milieu de tableau")
+
+    with st.expander("Absents / Blesses"):
         def get_injured(tdata):
             injured = []
             if not tdata:
@@ -116,12 +155,18 @@ if menu == "Analyse":
             for group in tdata.get("squad", {}).get("squad", []):
                 for p in group.get("members", []):
                     if p.get("injured") or p.get("injury"):
-                        injured.append(p.get("name", "Inconnu"))
+                        role = p.get("role", {}).get("fallback", "")
+                        injured.append(p.get("name", "?") + " (" + role + ")")
             return injured
         inj_h = get_injured(home_data)
         inj_a = get_injured(away_data)
-        st.write(home_team + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
-        st.write(away_team + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**" + home_team + "**")
+            st.write(", ".join(inj_h) if inj_h else "Aucun")
+        with c2:
+            st.write("**" + away_team + "**")
+            st.write(", ".join(inj_a) if inj_a else "Aucun")
 
     st.subheader("Cotes")
     query = (home_team + " " + away_team).replace(" ", "%20")
@@ -137,8 +182,8 @@ else:
     st.title("Classements")
     tab1, tab2, tab3 = st.tabs(["General", "Domicile", "Exterieur"])
     with tab1:
-        st.dataframe(df_all[["Pos", "Equipe", "Pts"]], hide_index=True, use_container_width=True)
+        st.dataframe(df_all[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
     with tab2:
-        st.dataframe(build_df("home")[["Pos", "Equipe", "Pts"]], hide_index=True, use_container_width=True)
+        st.dataframe(build_df("home")[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
     with tab3:
-        st.dataframe(build_df("away")[["Pos", "Equipe", "Pts"]], hide_index=True, use_container_width=True)
+        st.dataframe(build_df("away")[["Pos", "Equipe", "Pts", "J", "V", "N", "D"]], hide_index=True, use_container_width=True)
