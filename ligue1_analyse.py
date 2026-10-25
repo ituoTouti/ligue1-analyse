@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="Ligue 1", layout="centered", page_icon="⚽")
 
@@ -34,7 +34,7 @@ div[data-testid="stMetric"] {
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 BASE = "https://www.fotmob.com/api/data"
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def fetch(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -43,11 +43,11 @@ def fetch(url):
     except:
         return None
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def get_league():
     return fetch(BASE + "/leagues?id=53")
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def get_team(tid):
     return fetch(BASE + "/teams?id=" + str(tid))
 
@@ -68,47 +68,62 @@ def form_points(form_list, n=5):
 
 league = get_league()
 if not league:
-    st.error("Erreur de chargement des donnees")
+    st.error("Erreur de chargement")
     st.stop()
 
 table_data = league["table"][0]["data"]["table"]
 team_form_dict = league["table"][0].get("teamForm", {})
+fixtures = league.get("fixtures", {}).get("allMatches", [])
 
-# Recuperer les prochains matchs
+# Filtrer matchs des 7 derniers jours + prochains
+now = datetime.utcnow()
+cutoff_past = now - timedelta(days=7)
+cutoff_future = now + timedelta(days=7)
+
 matches_list = []
-raw_matches = league.get("matches", {}).get("allMatches", [])
-
-for m in raw_matches:
+for m in fixtures:
     status = m.get("status", {})
-    if status.get("finished") is True:
+    utc_str = status.get("utcTime", "")
+    if not utc_str:
+        continue
+    try:
+        match_time = datetime.fromisoformat(utc_str.replace("Z", "+00:00")).replace(tzinfo=None)
+    except:
+        continue
+    if not (cutoff_past <= match_time <= cutoff_future):
         continue
     home = m.get("home", {})
     away = m.get("away", {})
-    if not home.get("name") or not away.get("name"):
+    if not home.get("name"):
         continue
-    utc = status.get("utcTime", "")
-    time_str = utc[:16].replace("T", " ") if utc else ""
+    score = status.get("scoreStr", "")
+    finished = status.get("finished", False)
+    time_display = match_time.strftime("%d/%m %H:%M")
     matches_list.append({
         "home": home.get("name"),
         "away": away.get("name"),
         "home_id": str(home.get("id")),
         "away_id": str(away.get("id")),
-        "time": time_str
+        "time": time_display,
+        "score": score if finished else "",
+        "finished": finished,
+        "sort": match_time
     })
 
-# Garder les 9 prochains matchs (une journee)
-matches_list = matches_list[:9]
+matches_list.sort(key=lambda x: x["sort"])
 
 st.title("Ligue 1")
 st.subheader("Matchs de la semaine")
 
 if not matches_list:
-    st.info("Aucun match a venir pour le moment")
+    st.info("Aucun match dans la periode")
 else:
     for match in matches_list:
-        label = match["home"] + "  vs  " + match["away"]
-        if match["time"]:
-            label += "   •   " + match["time"]
+        if match["finished"] and match["score"]:
+            label = match["home"] + "  " + match["score"] + "  " + match["away"]
+        else:
+            label = match["home"] + "  vs  " + match["away"]
+        label += "   •   " + match["time"]
 
         with st.expander(label):
             c1, c2 = st.columns(2)
@@ -159,8 +174,7 @@ else:
 
 with st.sidebar:
     st.title("Menu")
-    if st.button("Voir le classement"):
-        st.subheader("Classement")
+    if st.button("Classement"):
         rows = []
         for t in table_data.get("all", []):
             rows.append({"Pos": t.get("idx"), "Equipe": t.get("name"), "Pts": t.get("pts")})
