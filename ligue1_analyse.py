@@ -50,11 +50,13 @@ def form_vnd(form_list, n=5):
     if not form_list:
         return "-"
     mapping = {"W": "V", "D": "N", "L": "D"}
-    return " ".join(mapping.get(m.get("resultString", "?"), "?") for m in form_list[-n:])
+    last = form_list[-n:] if len(form_list) >= n else form_list
+    return " ".join(mapping.get(m.get("resultString", "?"), "?") for m in last)
 
 def form_points(form_list, n=5):
     pts = 0
-    for m in form_list[-n:]:
+    last = form_list[-n:] if form_list else []
+    for m in last:
         r = m.get("resultString")
         pts += 3 if r == "W" else 1 if r == "D" else 0
     return pts
@@ -89,6 +91,14 @@ def pronostic_score(home_pos, away_pos, pts_h, pts_a):
         return "1-1"
     else:
         return "1-0" if home_pos < away_pos else "0-1"
+
+def description_avenir(home, away, home_pos, away_pos):
+    if home_pos < away_pos:
+        return f"{home} recoit {away}. L'equipe domicile est mieux classee et part favorite sur son terrain."
+    elif away_pos < home_pos:
+        return f"{away} se deplace chez {home}. Les visiteurs ont un meilleur classement et peuvent surprendre."
+    else:
+        return f"Confrontation equilibree entre {home} et {away}. Match ouvert ou les details feront la difference."
 
 league = get_league()
 if not league:
@@ -150,13 +160,12 @@ for rnd in sorted_rounds:
     all_finished = all(m["finished"] for m in matches)
     any_current = any(m["is_current"] and not m["finished"] for m in matches)
 
-    # Couleur selon statut
     if all_finished:
-        color = "#6b7280"  # gris
+        color = "#6b7280"
     elif any_current:
-        color = "#16a34a"  # vert
+        color = "#16a34a"
     else:
-        color = "#1e3a8a"  # bleu fonce
+        color = "#1e3a8a"
 
     st.markdown(f"""
     <div style="background-color:{color}; padding:10px; border-radius:12px; margin-bottom:8px;">
@@ -173,24 +182,32 @@ for rnd in sorted_rounds:
             label += "  •  " + match["time"]
 
             with st.expander(label):
-                form_h = [x for x in team_form_dict.get(match["home_id"], []) if x.get("home", {}).get("isOurTeam")]
-                form_a = [x for x in team_form_dict.get(match["away_id"], []) if not x.get("home", {}).get("isOurTeam")]
+                # Forme generale (5 derniers)
+                form_h_all = team_form_dict.get(match["home_id"], [])
+                form_a_all = team_form_dict.get(match["away_id"], [])
 
                 c1, c2 = st.columns(2)
                 with c1:
                     st.image(logo(match["home_id"]), width=70)
                     st.write("**" + match["home"] + "**")
-                    st.caption(form_vnd(form_h))
+                    st.caption("5 derniers : " + form_vnd(form_h_all, 5))
                 with c2:
                     st.image(logo(match["away_id"]), width=70)
                     st.write("**" + match["away"] + "**")
-                    st.caption(form_vnd(form_a))
+                    st.caption("5 derniers : " + form_vnd(form_a_all, 5))
 
-                if not match["finished"]:
+                if match["finished"]:
+                    st.markdown("**Resume du match**")
+                    st.write(match["home"] + " " + match["score"].replace(" - ", " – ") + " " + match["away"] + ". Match termine.")
+                    st.caption("Buteurs : informations detaillees non disponibles dans les donnees gratuites.")
+                else:
                     home_pos = pos_map.get(match["home"], 10)
                     away_pos = pos_map.get(match["away"], 10)
-                    pts_h = form_points(form_h)
-                    pts_a = form_points(form_a)
+                    pts_h = form_points(form_h_all)
+                    pts_a = form_points(form_a_all)
+
+                    st.markdown("**Description**")
+                    st.write(description_avenir(match["home"], match["away"], home_pos, away_pos))
 
                     score_pred = pronostic_score(home_pos, away_pos, pts_h, pts_a)
                     st.markdown("**Pronostic score exact**")
