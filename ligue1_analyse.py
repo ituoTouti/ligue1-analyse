@@ -18,12 +18,6 @@ div[data-testid="stMetric"] {
     border-radius: 12px;
     padding: 8px;
 }
-.stButton>button, .stLinkButton>a {
-    background: white !important;
-    color: #0d4d2e !important;
-    border-radius: 10px;
-    font-weight: bold;
-}
 .stExpander {
     background: rgba(255,255,255,0.12);
     border-radius: 12px;
@@ -55,10 +49,11 @@ def get_team(tid):
 def logo(team_id):
     return "https://images.fotmob.com/image_resources/logo/teamlogo/" + str(team_id) + ".png"
 
-def form_string(form_list, n=5):
+def form_vnd(form_list, n=5):
     if not form_list:
         return "-"
-    return "".join(m.get("resultString", "?") for m in form_list[-n:])
+    mapping = {"W": "V", "D": "D", "L": "D"}
+    return " ".join(mapping.get(m.get("resultString", "?"), "?") for m in form_list[-n:])
 
 def form_points(form_list, n=5):
     pts = 0
@@ -67,18 +62,37 @@ def form_points(form_list, n=5):
         pts += 3 if r == "W" else 1 if r == "D" else 0
     return pts
 
-def quick_pronostic(home, away, home_pos, away_pos, form_h_pts, form_a_pts):
-    # Mini pronostic journalistique
-    if home_pos <= 6 and form_h_pts >= 9:
-        return f"{home} part favori a domicile. La forme recente et le classement jouent en leur faveur. Pronostic : victoire de {home}."
-    elif away_pos <= 6 and form_a_pts >= 9:
-        return f"{away} est en pleine confiance. Meme en deplacement, ils peuvent faire mal. Pronostic : victoire de {away}."
-    elif abs(home_pos - away_pos) <= 3:
-        return f"Match tres equilibre entre deux equipes de niveau proche. La premiere qui ouvre le score prendra un avantage decisif. Pronostic : match nul ou victoire serre."
-    elif home_pos < away_pos:
-        return f"{home} a l'avantage du terrain et un meilleur classement. Ils devraient s'imposer sans forcer. Pronostic : victoire de {home}."
+def analyse_equipe(team, pos, form_pts, is_home):
+    fort = []
+    faible = []
+    if pos <= 6:
+        fort.append("bon classement")
     else:
-        return f"{away} est mieux classe et en meilleure dynamique. Ils peuvent ramener les 3 points. Pronostic : victoire de {away}."
+        faible.append("classement moyen ou bas")
+    if form_pts >= 10:
+        fort.append("excellente forme recente")
+    elif form_pts <= 4:
+        faible.append("forme mediocre")
+    if is_home:
+        fort.append("avantage du terrain")
+    else:
+        faible.append("deplacement")
+    return (", ".join(fort) if fort else "aucun"), (", ".join(faible) if faible else "aucun")
+
+def pronostic_score(home, away, home_pos, away_pos, pts_h, pts_a):
+    # Score exact simple base sur forme et classement
+    if pts_h >= 10 and home_pos < away_pos:
+        return "2-0"
+    elif pts_h >= 7 and home_pos <= away_pos:
+        return "2-1"
+    elif pts_a >= 10 and away_pos < home_pos:
+        return "0-2"
+    elif pts_a >= 7 and away_pos <= home_pos:
+        return "1-2"
+    elif abs(home_pos - away_pos) <= 2:
+        return "1-1"
+    else:
+        return "1-0" if home_pos < away_pos else "0-1"
 
 league = get_league()
 if not league:
@@ -89,12 +103,10 @@ table_data = league["table"][0]["data"]["table"]
 team_form_dict = league["table"][0].get("teamForm", {})
 fixtures = league.get("fixtures", {}).get("allMatches", [])
 
-# Positions
 pos_map = {}
 for t in table_data.get("all", []):
     pos_map[t.get("name")] = t.get("idx")
 
-# Grouper par journee
 by_round = defaultdict(list)
 now = datetime.utcnow()
 cutoff_past = now - timedelta(days=10)
@@ -132,7 +144,6 @@ for m in fixtures:
 st.title("Ligue 1")
 st.subheader("Matchs par journee")
 
-# Trier les journees
 sorted_rounds = sorted(by_round.keys(), key=lambda x: int(x) if str(x).isdigit() else 999)
 
 for rnd in sorted_rounds:
@@ -140,9 +151,9 @@ for rnd in sorted_rounds:
     with st.expander(f"Journee {rnd}"):
         for match in matches:
             if match["finished"] and match["score"]:
-                label = f"{match['home']}  {match['score']}  {match['away']}  •  {match['time']}"
+                label = match["home"] + " " + match["score"].replace(" - ", " ") + " " + match["away"] + "  •  " + match["time"]
             else:
-                label = f"{match['home']}  vs  {match['away']}  •  {match['time']}"
+                label = match["home"] + " vs " + match["away"] + "  •  " + match["time"]
 
             with st.expander(label):
                 c1, c2 = st.columns(2)
@@ -155,22 +166,29 @@ for rnd in sorted_rounds:
 
                 form_h = [x for x in team_form_dict.get(match["home_id"], []) if x.get("home", {}).get("isOurTeam")]
                 form_a = [x for x in team_form_dict.get(match["away_id"], []) if not x.get("home", {}).get("isOurTeam")]
-                pts_h = form_points(form_h)
-                pts_a = form_points(form_a)
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.metric("Forme domicile", form_string(form_h), str(pts_h) + " pts")
+                    st.metric("5 derniers (dom.)", form_vnd(form_h))
                 with c2:
-                    st.metric("Forme exterieur", form_string(form_a), str(pts_a) + " pts")
+                    st.metric("5 derniers (ext.)", form_vnd(form_a))
 
                 home_pos = pos_map.get(match["home"], 10)
                 away_pos = pos_map.get(match["away"], 10)
+                pts_h = form_points(form_h)
+                pts_a = form_points(form_a)
 
-                # Mini pronostic
                 if not match["finished"]:
-                    st.markdown("**Pronostic**")
-                    st.write(quick_pronostic(match["home"], match["away"], home_pos, away_pos, pts_h, pts_a))
+                    score_pred = pronostic_score(match["home"], match["away"], home_pos, away_pos, pts_h, pts_a)
+                    st.markdown("**Pronostic score exact**")
+                    st.write(score_pred)
+
+                    fort_h, faible_h = analyse_equipe(match["home"], home_pos, pts_h, True)
+                    fort_a, faible_a = analyse_equipe(match["away"], away_pos, pts_a, False)
+
+                    st.markdown("**Points forts / faibles**")
+                    st.write(match["home"] + " → Fort : " + fort_h + " | Faible : " + faible_h)
+                    st.write(match["away"] + " → Fort : " + fort_a + " | Faible : " + faible_a)
 
                 home_data = get_team(match["home_id"])
                 away_data = get_team(match["away_id"])
@@ -190,15 +208,6 @@ for rnd in sorted_rounds:
                 st.write("**Absents**")
                 st.write(match["home"] + " : " + (", ".join(inj_h) if inj_h else "Aucun"))
                 st.write(match["away"] + " : " + (", ".join(inj_a) if inj_a else "Aucun"))
-
-                query = (match["home"] + " " + match["away"]).replace(" ", "%20")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.link_button("Betclic", "https://www.betclic.fr/search?q=" + query)
-                with c2:
-                    st.link_button("Winamax", "https://www.winamax.fr/search?q=" + query)
-                with c3:
-                    st.link_button("Unibet", "https://www.unibet.fr/search?q=" + query)
 
 with st.sidebar:
     st.title("Menu")
